@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>r/Place — Sonsuz Tuval</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0c0c10;
+      --surface: #13131a;
+      --border: #252530;
+      --accent: #FF4500;
+      --accent2: #FFD635;
+      --text: #e0e0e0;
+      --muted: #444;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Press Start 2P', monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px 12px 40px;
+      gap: 16px;
+    }
+
+    /* ── HEADER ── */
+    header {
+      text-align: center;
+    }
+    header h1 {
+      font-size: clamp(16px, 3vw, 26px);
+      color: var(--accent);
+      text-shadow: 0 0 18px #FF4500cc, 0 0 40px #FF450055;
+      letter-spacing: 3px;
+    }
+    header p {
+      font-size: 7px;
+      color: var(--muted);
+      margin-top: 6px;
+      letter-spacing: 1px;
+    }
+
+    /* ── STATUS BAR ── */
+    #status-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 8px;
+      color: var(--muted);
+    }
+    #status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #555;
+      transition: background 0.3s;
+    }
+    #status-dot.online  { background: #00CC78; box-shadow: 0 0 6px #00CC78; }
+    #status-dot.saving  { background: #FFA800; box-shadow: 0 0 6px #FFA800; }
+    #status-dot.error   { background: #FF4500; box-shadow: 0 0 6px #FF4500; }
+
+    /* ── CANVAS WRAPPER ── */
+    #canvas-outer {
+      overflow: auto;
+      max-width: 100%;
+      border: 2px solid var(--border);
+      box-shadow: 0 0 40px rgba(255,69,0,0.12);
+      background: #fff;
+      cursor: crosshair;
+      position: relative;
+    }
+
+    #canvas-el {
+      display: block;
+      image-rendering: pixelated;
+    }
+
+    #hover-label {
+      position: fixed;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.8);
+      color: #fff;
+      font-size: 7px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      pointer-events: none;
+      display: none;
+    }
+
+    /* ── PALETTE ── */
+    #palette-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      align-items: center;
+      width: 100%;
+      max-width: 720px;
+    }
+
+    #palette {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: center;
+    }
+
+    .swatch {
+      width: 28px; height: 28px;
+      border-radius: 5px;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.1s, border-color 0.1s;
+    }
+    .swatch:hover { transform: scale(1.15); }
+    .swatch.active {
+      border-color: #fff;
+      transform: scale(1.25);
+      box-shadow: 0 0 10px var(--selected-color, #fff);
+    }
+
+    #selected-preview {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 8px;
+      color: var(--muted);
+    }
+    #preview-box {
+      width: 22px; height: 22px;
+      border-radius: 4px;
+      border: 2px solid #333;
+    }
+
+    /* ── INSTRUCTIONS ── */
+    #instructions {
+      font-size: 7px;
+      color: #333;
+      text-align: center;
+      line-height: 1.8;
+    }
+
+    @keyframes blink { 50% { opacity: 0; } }
+    .blink { animation: blink 1s step-end infinite; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>r/PLACE</h1>
+  <p>SONSUZ PAYLAŞIMLI TUVAL &nbsp;•&nbsp; TIK &amp; ÇIZMEYE BAŞla</p>
+</header>
+
+<div id="status-bar">
+  <div id="status-dot"></div>
+  <span id="status-text">BAĞLANIYOR...</span>
+</div>
+
+<div id="canvas-outer">
+  <canvas id="canvas-el"></canvas>
+</div>
+
+<div id="palette-wrap">
+  <div id="selected-preview">
+    <div id="preview-box"></div>
+    <span>SEÇİLİ RENK: <span id="selected-hex">#FF4500</span></span>
+  </div>
+  <div id="palette"></div>
+</div>
+
+<div id="instructions">
+  🖱 SOL TIK = piksel koy &nbsp;|&nbsp; SÜRÜKLE = çizgi çiz<br/>
+  TÜM KULLANICILAR AYNI TUVALİ GÖRÜR — DEĞİŞİKLİKLER ANINDA KAYDEDİLİR
+</div>
+
+<div id="hover-label"></div>
+
+<script>
+const COLS = 80;
+const ROWS = 50;
+const CELL = 12; // px per pixel (can zoom later)
+
+const PALETTE = [
+  "#FFFFFF","#E4E4E4","#888888","#494949","#222222","#000000",
+  "#FF4500","#FF6600","#FFA800","#FFD635","#FFFF00",
+  "#00CC78","#007A3C","#00756F","#2450A4","#3690EA",
+  "#51E9F4","#94B3FF","#811E9F","#B44AC0","#FF3881",
+  "#FF99AA","#6D001A","#BF4300","#BE0039","#FF0000",
+];
+
+let pixels = Array(COLS * ROWS).fill("#FFFFFF");
+let selectedColor = "#FF4500";
+let isDrawing = false;
+let dirty = false;
+let pollTimer = null;
+
+// ── Canvas setup ──
+const canvas = document.getElementById("canvas-el");
+const ctx = canvas.getContext("2d");
+canvas.width  = COLS * CELL;
+canvas.height = ROWS * CELL;
+
+function drawAll() {
+  for (let i = 0; i < pixels.length; i++) {
+    const x = (i % COLS) * CELL;
+    const y = Math.floor(i / COLS) * CELL;
+    ctx.fillStyle = pixels[i];
+    ctx.fillRect(x, y, CELL, CELL);
+  }
+  // grid lines (subtle)
+  ctx.strokeStyle = "rgba(0,0,0,0.06)";
+  ctx.lineWidth = 0.5;
+  for (let c = 0; c <= COLS; c++) { ctx.beginPath(); ctx.moveTo(c*CELL, 0); ctx.lineTo(c*CELL, ROWS*CELL); ctx.stroke(); }
+  for (let r = 0; r <= ROWS; r++) { ctx.beginPath(); ctx.moveTo(0, r*CELL); ctx.lineTo(COLS*CELL, r*CELL); ctx.stroke(); }
+}
+
+function drawCell(idx) {
+  const x = (idx % COLS) * CELL;
+  const y = Math.floor(idx / COLS) * CELL;
+  ctx.fillStyle = pixels[idx];
+  ctx.fillRect(x, y, CELL, CELL);
+  ctx.strokeStyle = "rgba(0,0,0,0.06)";
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(x, y, CELL, CELL);
+}
+
+// ── Palette ──
+const paletteEl = document.getElementById("palette");
+PALETTE.forEach(color => {
+  const btn = document.createElement("button");
+  btn.className = "swatch" + (color === selectedColor ? " active" : "");
+  btn.style.background = color;
+  btn.title = color;
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".swatch").forEach(s => s.classList.remove("active"));
+    btn.classList.add("active");
+    selectedColor = color;
+    document.getElementById("preview-box").style.background = color;
+    document.getElementById("selected-hex").textContent = color;
+  });
+  paletteEl.appendChild(btn);
+});
+document.getElementById("preview-box").style.background = selectedColor;
+
+// ── Status ──
+function setStatus(state, msg) {
+  const dot = document.getElementById("status-dot");
+  dot.className = "";
+  dot.classList.add(state);
+  document.getElementById("status-text").textContent = msg;
+}
+
+// ── API ──
+async function fetchCanvas() {
+  try {
+    const res = await fetch("/api/canvas");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    pixels = data.pixels;
+    drawAll();
+    setStatus("online", "CANLI • " + new Date().toLocaleTimeString("tr-TR"));
+  } catch(e) {
+    setStatus("error", "BAĞLANTI HATASI");
+  }
+}
+
+async function postPixel(index, color) {
+  setStatus("saving", "KAYDEDİLİYOR...");
+  try {
+    const res = await fetch("/api/canvas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ index, color }),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    setStatus("online", "KAYDEDİLDİ ✓");
+    // re-fetch to sync with other users
+    setTimeout(fetchCanvas, 300);
+  } catch(e) {
+    setStatus("error", "KAYIT HATASI");
+  }
+}
+
+// ── Mouse / Touch input ──
+function getIndex(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width  / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  const x = Math.floor((clientX - rect.left) * scaleX / CELL);
+  const y = Math.floor((clientY - rect.top)  * scaleY / CELL);
+  if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return -1;
+  return y * COLS + x;
+}
+
+function placePixel(idx) {
+  if (idx < 0) return;
+  if (pixels[idx] === selectedColor) return;
+  pixels[idx] = selectedColor;
+  drawCell(idx);
+  postPixel(idx, selectedColor);
+}
+
+canvas.addEventListener("mousedown", e => { isDrawing = true; placePixel(getIndex(e)); });
+canvas.addEventListener("mousemove", e => { if (isDrawing) placePixel(getIndex(e)); });
+window.addEventListener("mouseup",   () => { isDrawing = false; });
+canvas.addEventListener("touchstart", e => { e.preventDefault(); isDrawing = true; placePixel(getIndex(e)); }, { passive: false });
+canvas.addEventListener("touchmove",  e => { e.preventDefault(); if (isDrawing) placePixel(getIndex(e)); }, { passive: false });
+window.addEventListener("touchend",   () => { isDrawing = false; });
+
+// ── Hover label ──
+const hoverLabel = document.getElementById("hover-label");
+canvas.addEventListener("mousemove", e => {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width  / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = Math.floor((e.clientX - rect.left) * scaleX / CELL);
+  const y = Math.floor((e.clientY - rect.top)  * scaleY / CELL);
+  if (x >= 0 && x < COLS && y >= 0 && y < ROWS) {
+    hoverLabel.style.display = "block";
+    hoverLabel.textContent = `(${x}, ${y}) — ${pixels[y*COLS+x]}`;
+  } else {
+    hoverLabel.style.display = "none";
+  }
+});
+canvas.addEventListener("mouseleave", () => { hoverLabel.style.display = "none"; });
+
+// ── Poll every 3s to sync with other users ──
+fetchCanvas();
+setInterval(fetchCanvas, 3000);
+</script>
+</body>
+</html>
